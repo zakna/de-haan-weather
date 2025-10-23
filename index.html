@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- UPDATED: Title tag -->
+    <title>De Haan: Weekend Planner</title>
+    <!-- 1. Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 2. Load Inter font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        /* 3. Custom styles */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* UPDATED: New 4-tier system */
+        .verdict-perfect {
+            background-color: #b2f5ea; /* teal-200 */
+            color: #234e52; /* teal-900 */
+            border-left: 5px solid #319795; /* teal-600 */
+        }
+        .verdict-good {
+            background-color: #c6f6d5; /* green-200 */
+            color: #22543d; /* green-900 */
+            border-left: 5px solid #38a169; /* green-600 */
+        }
+        .verdict-passable {
+            background-color: #fefcbf; /* yellow-100 */
+            color: #744210; /* yellow-900 */
+            border-left: 5px solid #d69e2e; /* yellow-600 */
+        }
+        .verdict-bad {
+            background-color: #fed7d7; /* red-200 */
+            color: #822727; /* red-900 */
+            border-left: 5px solid #e53e3e; /* red-600 */
+        }
+
+        /* Basic spinner animation */
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #2563eb; /* blue-600 */
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+        /* Ensure table text doesn't wrap unnecessarily */
+         table th, table td {
+            white-space: nowrap;
+         }
+         /* Smaller text for verdict reasons */
+        .reason-text {
+             font-size: 0.7rem; /* Smaller than text-xs */
+             line-height: 1rem;
+             white-space: normal; /* Allow reason text to wrap */
+         }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-4 md:p-8">
+
+    <div class="max-w-5xl mx-auto">
+        <!-- Header -->
+        <header class="text-center mb-6">
+             <!-- UPDATED: H1 title -->
+            <h1 class="text-3xl md:text-4xl font-bold text-blue-900">De Haan: Weekend Planner</h1>
+        </header>
+
+        <!-- Loading Spinner -->
+        <div id="loading-spinner" class="flex justify-center items-center h-64">
+            <div class="spinner" role="status">
+                <span class="sr-only">Loading...</span>
+            </div>
+        </div>
+
+        <!-- Error Message Display -->
+        <div id="error-message" class="max-w-4xl mx-auto p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg hidden">
+            <!-- Error content will be injected here -->
+        </div>
+
+        <!-- Weather Dashboard -->
+        <main id="weather-dashboard" class="grid grid-cols-1 md:grid-cols-2 gap-6 hidden">
+            <!-- Weather cards will be injected here by JavaScript -->
+        </main>
+
+        <!-- UPDATED: Explanation Section (removed interpolation mention) -->
+        <section id="explanation" class="mt-8 p-6 bg-white rounded-xl shadow-lg hidden">
+             <h2 class="text-xl font-semibold text-gray-800 mb-3">How Ratings Work</h2>
+             <p class="text-sm text-gray-700 mb-2">
+                 Each activity (Beach Walk, Dune Walk, etc.) for each hour is rated based on the forecast conditions (Feels Like Temp, Wind Speed, Rain Chance) compared to what's typical for that specific week in autumn at De Haan.
+             </p>
+             <p class="text-sm text-gray-700 mb-2">
+                 The <strong class="font-semibold">typical weekly baseline</strong> is estimated based on average monthly conditions for October and November. This baseline helps determine if the forecast is better or worse than usual for the time of year.
+             </p>
+              <p class="text-sm text-gray-700 mb-2">
+                 The ratings aim to reflect realistic comfort levels for autumn coastal activities:
+             </p>
+             <ul class="list-disc list-inside text-sm text-gray-700 space-y-1 mb-2">
+                 <li><span class="font-semibold text-teal-700">PERFECT:</span> Exceptionally good conditions, rare for the season.</li>
+                 <li><span class="font-semibold text-green-700">GOOD:</span> Noticeably better than the weekly average.</li>
+                 <li><span class="font-semibold text-yellow-700">PASSABLE:</span> Around average for the week, or slightly worse but still manageable (within absolute safety/comfort limits).</li>
+                 <li><span class="font-semibold text-red-700">BAD:</span> Significantly worse than the weekly average, or exceeding absolute limits (e.g., wind > 25 km/h for Beach Walk).</li>
+             </ul>
+              <p class="text-xs text-gray-500 italic">
+                  Note: Absolute limits (like maximum wind for safety or minimum temperature for comfort) always override the comparison to the average. This is why 'Beach Walk' might be 'BAD' due to high wind, while 'Beach Stay' (assuming a shelter) might still be 'PASSABLE' at the same time.
+              </p>
+        </section>
+
+    </div>
+
+    <script>
+        // --- API CONFIGURATION ---
+        const deHaanLat = 51.2762;
+        const deHaanLon = 3.0301;
+        const forecastApiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${deHaanLat}&longitude=${deHaanLon}&hourly=apparent_temperature,precipitation_probability,weather_code,wind_speed_10m,wind_direction_10m&wind_speed_unit=kmh&timezone=auto&forecast_days=14`;
+
+        // --- HARDCODED MONTHLY BASELINES ---
+        const MONTHLY_BASELINES = {
+            9: { wind: 28, temp: 8, rain: 40, month: 'Oct' }, // October Average
+            10: { wind: 30, temp: 6, rain: 45, month: 'Nov' }, // November Average
+            default: { wind: 29, temp: 7, rain: 42, month: 'Autumn Avg' }
+        };
+
+        // --- GENERATE WEEKLY BASELINES BY INTERPOLATION ---
+        const HISTORICAL_BASELINES_WEEKLY = {};
+
+        function generateWeeklyBaselines() {
+            const oct = MONTHLY_BASELINES[9];
+            const nov = MONTHLY_BASELINES[10];
+
+            const diffTemp = nov.temp - oct.temp;
+            const diffWind = nov.wind - oct.wind;
+            const diffRain = nov.rain - oct.rain;
+
+            // Use 5 transition points (end of Oct Wk1, Wk2, Wk3, Wk4 -> start of Nov Wk1)
+            const numTransitionWeeks = 4;
+            const stepTemp = diffTemp / numTransitionWeeks;
+            const stepWind = diffWind / numTransitionWeeks;
+            const stepRain = diffRain / numTransitionWeeks;
+
+            // Get current week number to handle year wrapping if necessary
+            const now = new Date();
+            const currentWeek = getWeekNumber(now);
+            const currentYear = now.getFullYear();
+
+            // Estimate week numbers for Oct/Nov relative to current year/week
+            // This is approximate but avoids hardcoding specific years
+            const octStartWeek = 40;
+            const novStartWeek = 44;
+
+            // Generate baselines for a range around the current date to cover potential forecasts
+            for (let weekOffset = -2; weekOffset <= 10; weekOffset++) {
+                 let targetWeek = currentWeek + weekOffset;
+                 let year = currentYear;
+
+                 // Basic week number wrapping (doesn't handle short/long years perfectly but ok for Oct/Nov)
+                 // A more robust solution would use a library or more complex date math
+                 if (targetWeek > 52 && getWeekNumber(new Date(year, 11, 31)) === 52) { // Handle 52 week year end
+                     targetWeek -= 52;
+                     year += 1;
+                 } else if (targetWeek > 53 && getWeekNumber(new Date(year, 11, 31)) === 53) { // Handle 53 week year end
+                      targetWeek -= 53;
+                      year += 1;
+                 } else if (targetWeek < 1) {
+                     // Get week count of previous year
+                     const prevYearWeekCount = getWeekNumber(new Date(year - 1, 11, 31));
+                     targetWeek += prevYearWeekCount;
+                     year -= 1;
+                 }
+
+
+                 let baseline;
+                 // Determine which baseline year/month rules apply (simplified)
+                  if (year > currentYear || (year === currentYear && targetWeek >= novStartWeek + numTransitionWeeks)) { // Well into Nov
+                      baseline = { temp: nov.temp, wind: nov.wind, rain: nov.rain };
+                  } else if (year === currentYear && targetWeek >= novStartWeek) { // November transition
+                     // Interpolate based on how far into Nov transition (week 44 is start)
+                     let factor = Math.min(numTransitionWeeks, targetWeek - novStartWeek) / numTransitionWeeks; // 0 towards 1
+                     baseline = {
+                         temp: Math.round(oct.temp + diffTemp * factor),
+                         wind: Math.round(oct.wind + diffWind * factor),
+                         rain: Math.round(oct.rain + diffRain * factor),
+                     };
+                 } else if (year === currentYear && targetWeek >= octStartWeek) { // October
+                     baseline = { temp: oct.temp, wind: oct.wind, rain: oct.rain };
+                 } else { // Before Oct or in previous year, use Oct baseline as fallback
+                      baseline = { temp: oct.temp, wind: oct.wind, rain: oct.rain };
+                 }
+
+                 baseline.label = `Wk ${targetWeek}`; // Add label
+                 HISTORICAL_BASELINES_WEEKLY[targetWeek] = baseline;
+            }
+
+
+             // Add a default for safety
+             HISTORICAL_BASELINES_WEEKLY.default = MONTHLY_BASELINES.default;
+             HISTORICAL_BASELINES_WEEKLY.default.label = 'Avg'; // Use 'label'
+
+            // console.log("Generated Weekly Baselines:", HISTORICAL_BASELINES_WEEKLY); // Keep for debugging if needed
+        }
+
+        generateWeeklyBaselines(); // Generate the weekly data on script load
+
+
+        // --- HELPER FUNCTIONS ---
+
+         // Function to get ISO week number
+        function getWeekNumber(d) {
+             // Create a new date object from the input date to avoid modifying it
+             const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+             // Set to nearest Thursday: current date + 4 - current day number
+             // Make Sunday's day number 7
+             date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
+             // Get first day of year
+             const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+             // Calculate full weeks to nearest Thursday
+             const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+             // Return week number
+             return weekNo;
+        }
+
+
+        function parseLocalDate(dateString) {
+             // Parses ISO string like "2025-10-22T07:00" into a LOCAL Date object
+             return new Date(dateString);
+        }
+
+        function convertWeatherCode(code) {
+             if (code === 0) return "Clear";
+            if (code >= 1 && code <= 3) return "Partly Cloudy";
+            if (code === 45 || code === 48) return "Fog";
+            if (code >= 51 && code <= 55) return "Drizzle";
+            if (code >= 61 && code <= 65) return "Rain";
+            if (code >= 80 && code <= 82) return "Showers";
+            if (code === 66 || code === 67) return "Freezing Rain";
+            if (code >= 71 && code <= 77) return "Snow";
+            if (code >= 85 && code <= 86) return "Snow Showers";
+            if (code >= 95 && code <= 99) return "Thunderstorm";
+            return "Cloudy";
+        }
+
+        function convertWindDirection(deg) {
+            const val = Math.floor((deg / 22.5) + 0.5);
+            const arr = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+            return arr[(val % 16)];
+        }
+
+        function getWindLabel(direction) {
+             const onshore = ["W", "WNW", "NW", "NNW", "N"];
+            if (onshore.includes(direction)) {
+                return `${direction} (Onshore)`;
+            }
+            const offshore = ["E", "ESE", "SE", "SSE", "S"];
+             if (offshore.includes(direction)) {
+                return `${direction} (Offshore)`;
+            }
+            // Add Cross-shore directions explicitly if needed
+            const crossShore = ["NE", "ENE", "SW", "WSW"];
+             if (crossShore.includes(direction)){
+                 return `${direction} (Cross-shore)`;
+             }
+            return `${direction}`; // Default if none match (shouldn't happen)
+        }
+
+       function transformApiData(hourlyData) {
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+            const daysMap = new Map();
+
+            // Calculate dates for this weekend and next weekend
+            const thisSaturday = new Date(today);
+            thisSaturday.setDate(today.getDate() + (6 - today.getDay() + 7) % 7);
+            const thisSunday = new Date(thisSaturday);
+            thisSunday.setDate(thisSunday.getDate() + 1);
+
+            const nextSaturday = new Date(thisSaturday);
+            nextSaturday.setDate(nextSaturday.getDate() + 7);
+            const nextSunday = new Date(thisSunday);
+            nextSunday.setDate(nextSunday.getDate() + 7);
+
+            const weekendDays = [
+                { date: thisSaturday, label: `Saturday, ${thisSaturday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` },
+                { date: thisSunday, label: `Sunday, ${thisSunday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` },
+                { date: nextSaturday, label: `Saturday, ${nextSaturday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` },
+                { date: nextSunday, label: `Sunday, ${nextSunday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` }
+            ];
+
+             // Initialize map with YYYY-MM-DD keys
+            weekendDays.forEach(day => {
+                const dateString = day.date.getFullYear() + '-' + String(day.date.getMonth() + 1).padStart(2, '0') + '-' + String(day.date.getDate()).padStart(2, '0');
+                daysMap.set(dateString, {
+                    day: day.label,
+                    week: getWeekNumber(day.date), // Store week number for baseline lookup
+                    windDirection: "N/A",
+                    hourly: [], // Will store ALL hourly data for the day initially
+                    // Temp storage for calculating avg wind dir later
+                    windDirSum: 0,
+                    windDirCount: 0
+                });
+            });
+
+            // Process API data - Store ALL hours first
+            for (let i = 0; i < hourlyData.time.length; i++) {
+                 const dateObj = parseLocalDate(hourlyData.time[i]); // Get local Date object
+                 const dateString = dateObj.getFullYear() + '-' + String(dateObj.getMonth() + 1).padStart(2, '0') + '-' + String(dateObj.getDate()).padStart(2, '0'); // YYYY-MM-DD
+
+                if (daysMap.has(dateString)) {
+                    const dayData = daysMap.get(dateString);
+                    const hour = dateObj.getHours(); // Use local hour
+
+                    // Store all hourly data points
+                    dayData.hourly.push({
+                        hour: hour,
+                        time: `${String(hour).padStart(2, '0')}:00`,
+                        temp: Math.round(hourlyData.apparent_temperature[i]),
+                        wind: Math.round(hourlyData.wind_speed_10m[i]),
+                        rain: hourlyData.precipitation_probability[i],
+                        sky: convertWeatherCode(hourlyData.weather_code[i]),
+                        windDirDeg: hourlyData.wind_direction_10m[i] // Keep original degrees
+                    });
+                }
+            }
+
+            // Calculate average wind direction using only the SPECIFIC display hours
+            const processedData = [];
+            const displayHours = [9, 11, 13, 15, 17]; // Define display hours
+
+            daysMap.forEach((dayData) => {
+                if (dayData.hourly.length > 0) {
+                     let relevantWindSum = 0;
+                     let relevantWindCount = 0;
+
+                     // Calculate sum/count only from hours we will display
+                     dayData.hourly.forEach(h => {
+                         // Add check for valid number
+                         if (displayHours.includes(h.hour) && typeof h.windDirDeg === 'number') {
+                             relevantWindSum += h.windDirDeg;
+                             relevantWindCount++;
+                         }
+                     });
+
+                    // Calculate average wind direction based only on displayed hours
+                    if (relevantWindCount > 0) {
+                        const avgDir = relevantWindSum / relevantWindCount;
+                        dayData.windDirection = getWindLabel(convertWindDirection(avgDir));
+                    } else {
+                         // Fallback: If somehow no display hours have data, average all available
+                         let backupSum = 0;
+                         let backupCount = 0;
+                         dayData.hourly.forEach(h => {
+                             // Ensure windDirDeg exists and is a number before summing
+                             if (typeof h.windDirDeg === 'number') {
+                                 backupSum += h.windDirDeg;
+                                 backupCount++;
+                             }
+                         });
+                         if (backupCount > 0) {
+                             const avgDir = backupSum / backupCount;
+                             dayData.windDirection = getWindLabel(convertWindDirection(avgDir));
+                         } else {
+                             dayData.windDirection = "N/A"; // True fallback
+                         }
+                    }
+
+                    // Clean up temporary properties before pushing
+                    dayData.hourly.forEach(h => delete h.windDirDeg); // Remove degree prop
+                    // Note: We keep all hours in dayData.hourly for now, filtering happens in renderDashboard
+
+                    dayData.hourly.sort((a, b) => a.hour - b.hour); // Ensure sorted by hour
+                    processedData.push(dayData); // Push the day data containing ALL hours
+                }
+            });
+
+             // Sort the final array of days chronologically
+             processedData.sort((a, b) => {
+                // Use the full date object derived earlier for sorting
+                 const yearA = (a.week < getWeekNumber(now) && now.getMonth() === 11) ? now.getFullYear() + 1 : now.getFullYear();
+                 const yearB = (b.week < getWeekNumber(now) && now.getMonth() === 11) ? now.getFullYear() + 1 : now.getFullYear();
+                 const dateA = new Date(a.day.split(', ')[1] + ', ' + yearA);
+                 const dateB = new Date(b.day.split(', ')[1] + ', ' + yearB);
+                 return dateA - dateB;
+            });
+
+
+            return processedData;
+       }
+
+
+        // --- 1. VERDICT LOGIC (Accepts historical baseline) ---
+        // Includes absolute limits AND comparison to baseline
+        function getBeachWalkVerdict(temp, wind, rain, baseline) {
+             const activity = "Beach Walk";
+            const { temp: avgT, wind: avgW, rain: avgR, label } = baseline;
+
+            // Absolute dealbreakers first
+            if (wind > 25) {
+                 return { text: "BAD", class: "verdict-bad", reason: `Wind (${wind} km/h) > 25 km/h limit.`, activity };
+            }
+             if (rain > 70) { // High rain prob is bad regardless of avg
+                 return { text: "BAD", class: "verdict-bad", reason: `Rain (${rain}%) > 70% limit.`, activity };
+            }
+            if (temp < 0) { // Very cold is bad regardless of avg
+                 return { text: "BAD", class: "verdict-bad", reason: `Temp (${temp}°C) < 0°C limit.`, activity };
+            }
+
+
+            // Perfect conditions (absolute)
+            if (temp > 12 && wind < 10 && rain < 5) {
+                return { text: "PERFECT", class: "verdict-perfect", reason: `Miracle autumn day!`, activity };
+            }
+            // Good conditions (better than avg)
+            if (temp > avgT + 1 && wind < avgW - 5 && rain < avgR - 15) {
+                return { text: "GOOD", class: "verdict-good", reason: `Better than ${label} avg!`, activity };
+            }
+            // Passable conditions (around avg, within absolute limits)
+            if (temp >= avgT - 3 && rain <= avgR + 10) { // Wind already checked (<25)
+                return { text: "PASSABLE", class: "verdict-passable", reason: `Typical ${label} day. Wrap up.`, activity };
+            }
+
+            // If none of the above, it's BAD relative to average
+            let reason = `Worse than ${label} avg.`;
+             if (wind > avgW + 2) { // More specific reason if wind is the issue
+                 reason = `Wind (${wind}) vs ${label} avg (${avgW}).`;
+            } else if (rain > avgR + 10) {
+                reason = `Rain (${rain}%) vs ${label} avg (${avgR}%).`;
+            } else if (temp < avgT - 3) {
+                reason = `Temp (${temp}°C) vs ${label} avg (${avgT}°C).`;
+            }
+             return { text: "BAD", class: "verdict-bad", reason: reason, activity };
+        }
+
+        function getDuneWalkVerdict(temp, wind, rain, baseline) {
+            const activity = "Dune Walk";
+            const { temp: avgT, wind: avgW, rain: avgR, label } = baseline;
+
+             // Absolute dealbreakers first
+            if (rain > 50) { // Rain limit for dunes
+                return { text: "BAD", class: "verdict-bad", reason: `Rain (${rain}%) > 50% limit.`, activity };
+            }
+            if (temp < 2) { // Temp limit for dunes
+                 return { text: "BAD", class: "verdict-bad", reason: `Temp (${temp}°C) < 2°C limit.`, activity };
+            }
+
+            // Perfect conditions (absolute)
+            if (temp > 10 && rain < 5) {
+                return { text: "PERFECT", class: "verdict-perfect", reason: `Perfect dune walk.`, activity };
+            }
+            // Good conditions (better than avg temp/rain)
+            if (temp > avgT && rain < avgR - 20) {
+                return { text: "GOOD", class: "verdict-good", reason: `Good for dunes (warm/dry).`, activity };
+            }
+            // Passable conditions (around avg, within limits)
+            if (temp >= avgT - 5 && rain <= avgR + 15) {
+                return { text: "PASSABLE", class: "verdict-passable", reason: `Best bet. Sheltered.`, activity };
+            }
+
+             // If none of the above, it's BAD relative to average
+            let reason = `Worse than ${label} avg.`;
+             if (rain > avgR + 15) {
+                reason = `Rain (${rain}%) vs ${label} avg (${avgR}%).`;
+            } else if (temp < avgT - 5) {
+                reason = `Temp (${temp}°C) vs ${label} avg (${avgT}°C).`;
+            }
+            return { text: "BAD", class: "verdict-bad", reason: reason, activity };
+        }
+
+        function getBeachStayVerdict(temp, wind, rain, baseline) {
+            const activity = "Beach Stay (Shelter)";
+            const { temp: avgT, wind: avgW, rain: avgR, label } = baseline;
+
+            // Absolute dealbreakers first
+            if (wind > 40) { // Wind limit with shelter
+                 return { text: "BAD", class: "verdict-bad", reason: `Wind (${wind} km/h) > 40 km/h limit.`, activity };
+            }
+            if (rain > 30) { // Rain limit with shelter
+                 return { text: "BAD", class: "verdict-bad", reason: `Rain (${rain}%) > 30% limit.`, activity };
+            }
+             if (temp < 8) { // Temp limit for sitting still
+                 return { text: "BAD", class: "verdict-bad", reason: `Temp (${temp}°C) < 8°C limit.`, activity };
+            }
+
+            // Perfect conditions (absolute)
+            if (temp > 15 && wind < 15 && rain < 5) {
+                return { text: "PERFECT", class: "verdict-perfect", reason: `Ideal to sit out.`, activity };
+            }
+            // Good conditions (better than avg)
+            if (temp > avgT + 2 && wind < avgW && rain < avgR - 20) {
+                return { text: "GOOD", class: "verdict-good", reason: `Good for shelter (warm/calm/dry).`, activity };
+            }
+            // Passable conditions (around avg, within limits)
+            if (temp >= avgT && rain <= avgR + 5) { // Wind already checked (<40)
+                return { text: "PASSABLE", class: "verdict-passable", reason: `OK w/ shelter, near ${label} avg temp.`, activity };
+            }
+
+            // If none of the above, it's BAD relative to average
+            let reason = `Worse than ${label} avg.`;
+            if (wind > avgW + 5) { // Check relative wind if under 40
+                 reason = `Wind (${wind}) vs ${label} avg (${avgW}).`;
+            } else if (rain > avgR + 5) { // Check relative rain if under 30
+                reason = `Rain (${rain}%) vs ${label} avg (${avgR}%).`;
+            } else if (temp < avgT) { // Check relative temp if above 8
+                reason = `Temp (${temp}°C) vs ${label} avg (${avgT}°C).`;
+            }
+            return { text: "BAD", class: "verdict-bad", reason: reason, activity };
+        }
+
+
+        function getDuneStayVerdict(temp, wind, rain, baseline) {
+            const activity = "Dune Stay";
+            const { temp: avgT, wind: avgW, rain: avgR, label } = baseline;
+
+             // Absolute dealbreakers first
+             if (rain > 40) { // Rain limit for sitting in dunes
+                return { text: "BAD", class: "verdict-bad", reason: `Rain (${rain}%) > 40% limit.`, activity };
+            }
+            if (temp < 5) { // Temp limit for sitting in dunes
+                 return { text: "BAD", class: "verdict-bad", reason: `Temp (${temp}°C) < 5°C limit.`, activity };
+            }
+
+            // Perfect conditions (absolute)
+            if (temp > 12 && rain < 5) {
+                return { text: "PERFECT", class: "verdict-perfect", reason: `Perfect dune shelter.`, activity };
+            }
+            // Good conditions (better than avg temp/rain)
+            if (temp > avgT + 1 && rain < avgR - 20) {
+                return { text: "GOOD", class: "verdict-good", reason: `Good day for dunes (warm/dry).`, activity };
+            }
+            // Passable conditions (around avg, within limits)
+            if (temp >= avgT - 2 && rain <= avgR + 10) {
+                return { text: "PASSABLE", class: "verdict-passable", reason: `Good shelter in dunes.`, activity };
+            }
+
+            // If none of the above, it's BAD relative to average
+            let reason = `Worse than ${label} avg.`;
+            if (rain > avgR + 10) {
+                reason = `Rain (${rain}%) vs ${label} avg (${avgR}%).`;
+            } else if (temp < avgT - 2) {
+                reason = `Temp (${temp}°C) vs ${label} avg (${avgT}°C).`;
+            }
+             return { text: "BAD", class: "verdict-bad", reason: reason, activity };
+        }
+
+        /**
+         * 2. The Render Function
+         */
+        function renderDashboard(weatherData, error = null) {
+            const dashboard = document.getElementById('weather-dashboard');
+            const spinner = document.getElementById('loading-spinner');
+            const errorDisplay = document.getElementById('error-message');
+            const explanationSection = document.getElementById('explanation'); // Get explanation section
+
+            spinner.classList.add('hidden'); // Ensure spinner is hidden once rendering starts
+
+            if (error) {
+                errorDisplay.innerHTML = `<strong>Error:</strong> ${error}`;
+                errorDisplay.classList.remove('hidden');
+                dashboard.classList.add('hidden');
+                explanationSection.classList.add('hidden'); // Hide explanation on error
+                return;
+            }
+
+            if (!weatherData || weatherData.length === 0) {
+                errorDisplay.innerHTML = `<strong>Note:</strong> Forecast data for the upcoming weekends is not yet available. Please check back later.`;
+                errorDisplay.classList.remove('hidden');
+                dashboard.classList.add('hidden');
+                 explanationSection.classList.add('hidden'); // Hide explanation if no data
+                return;
+            }
+
+            errorDisplay.classList.add('hidden'); // Clear error display if data loaded successfully
+            dashboard.classList.remove('hidden');
+            explanationSection.classList.remove('hidden'); // Show explanation
+            dashboard.innerHTML = '';
+
+            weatherData.forEach(day => {
+
+                // Determine which historical baseline to use based on the day's WEEK number
+                const baseline = HISTORICAL_BASELINES_WEEKLY[day.week] || HISTORICAL_BASELINES_WEEKLY.default;
+
+                // Define the NEW sample hours relevant for a family
+                const sampleHours = [9, 11, 13, 15, 17]; // 9am, 11am, 1pm, 3pm, 5pm
+                // Filter the day's hourly data to only include these specific hours
+                const hourlySamplesForDisplay = day.hourly.filter(h => sampleHours.includes(h.hour));
+
+
+                let hourlyHtml = '';
+                 // Build the hourly details table *only* from the filtered samples
+                hourlySamplesForDisplay.forEach(h => {
+                    hourlyHtml += `
+                        <tr class="border-b border-gray-200 last:border-b-0">
+                            <td class="py-2 px-1 text-gray-700">${h.time}</td>
+                            <td class="py-2 px-1 text-gray-900 font-medium">${h.temp}°C</td>
+                            <td class="py-2 px-1 text-gray-700">${h.wind} km/h</td>
+                            <td class="py-2 px-1 text-gray-700">${h.rain}%</td>
+                            <td class="py-2 px-1 text-gray-700">${h.sky}</td>
+                        </tr>
+                    `;
+                });
+
+                if (hourlySamplesForDisplay.length === 0) {
+                     // Update message if no data for the *specific* sample hours
+                    hourlyHtml = `<tr><td colspan="5" class="py-3 text-center text-gray-500">Weather data for ${sampleHours.map(h => `${h}:00`).join(', ')} not yet available.</td></tr>`;
+                }
+
+                // Generate recommendations for EACH hour available in the NEW samples, passing the WEEKLY baseline
+                let recommendationHtml = '';
+                hourlySamplesForDisplay.forEach(h => { // Iterate over the filtered samples
+                    const beachWalk = getBeachWalkVerdict(h.temp, h.wind, h.rain, baseline);
+                    const duneWalk = getDuneWalkVerdict(h.temp, h.wind, h.rain, baseline);
+                    const beachStay = getBeachStayVerdict(h.temp, h.wind, h.rain, baseline);
+                    const duneStay = getDuneStayVerdict(h.temp, h.wind, h.rain, baseline);
+
+                    recommendationHtml += `
+                        <tr class="border-b border-gray-200 last:border-b-0">
+                            <td class="py-3 px-1 font-semibold text-gray-800 text-center">${h.time}</td>
+
+                            <td class="py-3 px-1 text-center">
+                                <span class="block w-full px-2 py-1 text-sm font-semibold rounded-full ${beachWalk.class.replace('border-l-5', '').replace('bg-', 'bg-opacity-50 ').replace('text-', 'text-opacity-100 ')}">
+                                    ${beachWalk.text}
+                                </span>
+                                <!-- UPDATED: Smaller reason text -->
+                                <p class="reason-text text-gray-600 mt-1">${beachWalk.reason}</p>
+                            </td>
+
+                            <td class="py-3 px-1 text-center">
+                                <span class="block w-full px-2 py-1 text-sm font-semibold rounded-full ${duneWalk.class.replace('border-l-5', '').replace('bg-', 'bg-opacity-50 ').replace('text-', 'text-opacity-100 ')}">
+                                    ${duneWalk.text}
+                                </span>
+                                <p class="reason-text text-gray-600 mt-1">${duneWalk.reason}</p>
+                            </td>
+
+                            <td class="py-3 px-1 text-center">
+                                <span class="block w-full px-2 py-1 text-sm font-semibold rounded-full ${duneStay.class.replace('border-l-5', '').replace('bg-', 'bg-opacity-50 ').replace('text-', 'text-opacity-100 ')}">
+                                    ${duneStay.text}
+                                </span>
+                                <p class="reason-text text-gray-600 mt-1">${duneStay.reason}</p>
+                            </td>
+
+                            <td class="py-3 px-1 text-center">
+                                <span class="block w-full px-2 py-1 text-sm font-semibold rounded-full ${beachStay.class.replace('border-l-5', '').replace('bg-', 'bg-opacity-50 ').replace('text-', 'text-opacity-100 ')}">
+                                    ${beachStay.text}
+                                </span>
+                                <p class="reason-text text-gray-600 mt-1">${beachStay.reason}</p>
+                            </td>
+                        </tr>
+                    `;
+                });
+                 if (hourlySamplesForDisplay.length === 0) {
+                     // Update message if no data for the *specific* sample hours
+                     recommendationHtml = `<tr><td colspan="5" class="py-3 text-center text-gray-500">Recommendation data for ${sampleHours.map(h => `${h}:00`).join(', ')} not yet available.</td></tr>`;
+                 }
+
+
+                const card = document.createElement('div');
+                card.className = 'bg-white rounded-xl shadow-lg p-6';
+
+                card.innerHTML = `
+                    <h2 class="text-2xl font-bold text-gray-800 mb-4">${day.day}</h2>
+
+                    <h3 class="text-lg font-semibold text-gray-700 mb-2">Activity Recommendations (vs. ${baseline.label} Avg.)</h3>
+                    <div class="mb-4 overflow-x-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead>
+                                <tr class="border-b-2 border-gray-300">
+                                    <th class="py-2 px-1 text-center">Time</th>
+                                    <th class="py-2 px-1 text-center">Beach Walk</th>
+                                    <th class="py-2 px-1 text-center">Dune Walk</th>
+                                    <th class="py-2 px-1 text-center">Dune Stay</th>
+                                    <th class="py-2 px-1 text-center">Beach Stay</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${recommendationHtml}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="bg-blue-50 border border-blue-200 p-3 rounded-lg mb-4">
+                        <p class="font-semibold text-blue-800">Avg. Wind Direction: ${day.windDirection}</p>
+                        <p class="text-sm text-blue-700">
+                            ${day.windDirection.includes("Onshore") ? "Onshore wind will feel colder on the beach." : (day.windDirection.includes("Offshore") ? "Offshore wind will feel calmer." : "Wind is roughly parallel to the beach.")}
+                        </p>
+                    </div>
+
+                    <h3 class="text-lg font-semibold text-gray-700 mb-2">Hourly Details</h3>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead>
+                                <tr class="border-b-2 border-gray-300">
+                                    <th class="py-2 px-1">Time</th>
+                                    <th class="py-2 px-1">Feels</th>
+                                    <th class="py-2 px-1">Wind</th>
+                                    <th class="py-2 px-1">Rain</th>
+                                    <th class="py-2 px-1">Sky</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${hourlyHtml}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+
+                dashboard.appendChild(card);
+            });
+        }
+
+
+        /**
+         * 3. Fetches forecast ONLY, then renders
+         */
+        async function fetchAndRenderWeather() {
+             const spinner = document.getElementById('loading-spinner');
+             const errorDisplay = document.getElementById('error-message');
+             const dashboard = document.getElementById('weather-dashboard');
+             const explanationSection = document.getElementById('explanation'); // Get explanation section
+
+             spinner.classList.remove('hidden');
+             errorDisplay.classList.add('hidden'); // Reset error display
+             dashboard.classList.add('hidden'); // Hide dashboard while loading
+             explanationSection.classList.add('hidden'); // Hide explanation initially
+
+            try {
+                // --- STEP 1: Fetch Forecast Data (with backoff) ---
+                let response = null;
+                let attempts = 0;
+                const maxAttempts = 5;
+                let delay = 1000;
+
+                while (attempts < maxAttempts) {
+                    try {
+                        response = await fetch(forecastApiUrl); // Use forecastApiUrl here
+                        if (response.ok) break;
+                        if (response.status === 429 || response.status >= 500) { // Retry on rate limit or server error
+                            attempts++;
+                            if (attempts >= maxAttempts) throw new Error(`API request failed after ${maxAttempts} attempts. Status: ${response.status}`);
+                            await new Promise(resolve => setTimeout(resolve, delay));
+                            delay *= 2; // Exponential backoff
+                        } else {
+                             throw new Error(`Weather data not found. (Error ${response.status})`);
+                        }
+                    } catch (fetchError) { // Catch network errors
+                        attempts++;
+                         if (attempts >= maxAttempts) throw new Error(`Network error after ${maxAttempts} attempts: ${fetchError.message}`);
+                         await new Promise(resolve => setTimeout(resolve, delay));
+                         delay *= 2; // Exponential backoff
+                    }
+                }
+
+                if (!response || !response.ok) {
+                     throw new Error(`Failed to fetch forecast data after ${maxAttempts} attempts. Last status: ${response ? response.status : 'unknown'}`);
+                }
+
+                const data = await response.json();
+
+                // Validate the structure of the forecast data
+                if (!data.hourly || !data.hourly.time || !Array.isArray(data.hourly.time) || data.hourly.time.length === 0 ||
+                    !data.hourly.apparent_temperature || !Array.isArray(data.hourly.apparent_temperature) || data.hourly.apparent_temperature.length !== data.hourly.time.length ||
+                    !data.hourly.precipitation_probability || !Array.isArray(data.hourly.precipitation_probability) || data.hourly.precipitation_probability.length !== data.hourly.time.length ||
+                    !data.hourly.weather_code || !Array.isArray(data.hourly.weather_code) || data.hourly.weather_code.length !== data.hourly.time.length ||
+                    !data.hourly.wind_speed_10m || !Array.isArray(data.hourly.wind_speed_10m) || data.hourly.wind_speed_10m.length !== data.hourly.time.length ||
+                    !data.hourly.wind_direction_10m || !Array.isArray(data.hourly.wind_direction_10m) || data.hourly.wind_direction_10m.length !== data.hourly.time.length) {
+                     console.warn("API returned incomplete or malformed hourly forecast data:", data.hourly);
+                     throw new Error("API returned incomplete forecast data. The structure might be incorrect or some arrays are missing/mismatched.");
+                }
+
+                // --- STEP 2: Transform and Render ---
+                const weatherData = transformApiData(data.hourly);
+                renderDashboard(weatherData);
+
+            } catch (error) {
+                console.error("Weather fetch/processing error:", error);
+                renderDashboard(null, `Failed to load weather data. ${error.message}`);
+
+            } finally {
+                 spinner.classList.add('hidden'); // Ensure spinner is hidden regardless of outcome
+            }
+        }
+
+        // 4. Run the app when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchAndRenderWeather();
+        });
+
+    </script>
+</body>
+</html>
