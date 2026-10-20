@@ -25,12 +25,12 @@ jobs:
       - name: Check the OVH settings are present
         env:
           HOST: ${{ vars.OVH_SFTP_HOST }}
-          USER_NAME: ${{ secrets.OVH_SFTP_USER }}
+          USER_NAME: ${{ vars.OVH_SFTP_USER }}
           PASSWORD: ${{ secrets.OVH_SFTP_PASSWORD }}
         run: |
           missing=""
           [ -n "$HOST" ] || missing="$missing variable OVH_SFTP_HOST"
-          [ -n "$USER_NAME" ] || missing="$missing secret OVH_SFTP_USER"
+          [ -n "$USER_NAME" ] || missing="$missing variable OVH_SFTP_USER"
           [ -n "$PASSWORD" ] || missing="$missing secret OVH_SFTP_PASSWORD"
           if [ -n "$missing" ]; then
             echo "::error::Cannot deploy, missing:$missing. Add them under Settings > Secrets and variables > Actions (see README)."
@@ -59,7 +59,7 @@ jobs:
       - name: Upload to OVH
         env:
           HOST: ${{ vars.OVH_SFTP_HOST }}
-          USER_NAME: ${{ secrets.OVH_SFTP_USER }}
+          USER_NAME: ${{ vars.OVH_SFTP_USER }}
           LFTP_PASSWORD: ${{ secrets.OVH_SFTP_PASSWORD }}
           # format() makes the API's string "false" and the form's boolean false read the same.
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.dry_run) == 'true' && '--dry-run' || '' }}
