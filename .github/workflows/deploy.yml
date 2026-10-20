@@ -1,0 +1,75 @@
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Only list what the upload would change"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check the OVH settings are present
+        env:
+          HOST: ${{ vars.OVH_SFTP_HOST }}
+          USER_NAME: ${{ secrets.OVH_SFTP_USER }}
+          PASSWORD: ${{ secrets.OVH_SFTP_PASSWORD }}
+        run: |
+          missing=""
+          [ -n "$HOST" ] || missing="$missing variable OVH_SFTP_HOST"
+          [ -n "$USER_NAME" ] || missing="$missing secret OVH_SFTP_USER"
+          [ -n "$PASSWORD" ] || missing="$missing secret OVH_SFTP_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::Cannot deploy, missing:$missing. Add them under Settings > Secrets and variables > Actions (see README)."
+            exit 1
+          fi
+
+      # The server's public host keys are committed in .github/ovh_known_hosts;
+      # the fingerprints are logged so a run shows exactly what was trusted.
+      - name: Install lftp and pin the SFTP host key
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lftp
+          install -d -m 700 ~/.ssh
+          install -m 600 .github/ovh_known_hosts ~/.ssh/known_hosts
+          ssh-keygen -lf ~/.ssh/known_hosts
+
+      - name: Stage the site
+        run: |
+          mkdir site
+          cp index.html site/
+
+      # Mirrors site/ into dehaan/ and deletes anything there that the site does
+      # not contain. `cd dehaan` fails (and cmd:fail-exit stops lftp) when the
+      # folder does not exist, so nothing is created or written elsewhere; www/
+      # and every other folder in the FTP home are never touched.
+      - name: Upload to OVH
+        env:
+          HOST: ${{ vars.OVH_SFTP_HOST }}
+          USER_NAME: ${{ secrets.OVH_SFTP_USER }}
+          LFTP_PASSWORD: ${{ secrets.OVH_SFTP_PASSWORD }}
+          # format() makes the API's string "false" and the form's boolean false read the same.
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.dry_run) == 'true' && '--dry-run' || '' }}
+        run: |
+          lftp -c "
+            set cmd:fail-exit yes
+            set net:max-retries 3
+            set sftp:auto-confirm no
+            set sftp:connect-program 'ssh -a -x -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts'
+            open --env-password -u '$USER_NAME' 'sftp://$HOST:22'
+            cd dehaan
+            mirror --reverse --delete --no-perms --parallel=4 --verbose $DRY_RUN site .
+          "
