@@ -13,7 +13,7 @@ Safety: the upload only ever writes inside `dehaan/`. It stops if that folder do
 1. In OVH Multisite, add the domain `dehaan.zakna.be` with root folder `dehaan` (this creates the folder) and enable SSL.
 2. In this repo, under Settings > Secrets and variables > Actions, add:
    - variable `OVH_SFTP_HOST`: the FTP host, `ftp.cluster129.hosting.ovh.net`
-   - variable `OVH_SFTP_USER`: the FTP user
+   - secret `OVH_SFTP_USER`: the FTP user (recommended; a variable of the same name is also accepted)
    - secret `OVH_SFTP_PASSWORD`: its password
 3. Run the workflow once and check https://dehaan.zakna.be. Until step 2 is done the run fails with a message naming what is missing.
 4. After that first successful deploy, disable GitHub Pages (Settings > Pages) so GitHub no longer hosts the site.
